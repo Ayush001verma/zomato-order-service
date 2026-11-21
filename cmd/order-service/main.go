@@ -34,7 +34,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/Ayush001verma/zomato-order-service/internal/handler"
 	"github.com/Ayush001verma/zomato-order-service/internal/repository"
+	"github.com/Ayush001verma/zomato-order-service/internal/service"
 )
 
 func getEnv(key, fallback string) string {
@@ -58,6 +60,12 @@ func main() {
 	log.Println("connected to postgres")
 
 	mux := http.NewServeMux()
+
+	// Wire the layers together: pool -> repository -> service -> handler.
+	orderRepo := repository.NewOrderRepository(pool)
+	orderSvc := service.NewOrderService(orderRepo)
+	orderHandler := handler.NewOrderHandler(orderSvc)
+	orderHandler.RegisterRoutes(mux)
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

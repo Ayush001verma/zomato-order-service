@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/Ayush001verma/zomato-order-service/internal/model"
+	"github.com/Ayush001verma/zomato-order-service/internal/repository"
 	"github.com/Ayush001verma/zomato-order-service/internal/service"
 )
 
@@ -23,6 +24,7 @@ func NewOrderHandler(svc *service.OrderService) *OrderHandler {
 // RegisterRoutes attaches this handler's routes to the mux.
 func (h *OrderHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /orders", h.CreateOrder)
+	mux.HandleFunc("GET /orders/{id}", h.GetOrder)
 }
 
 // CreateOrder handles POST /orders.
@@ -51,6 +53,26 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, order)
+}
+
+// GetOrder handles GET /orders/{id}.
+func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
+	order, err := h.svc.GetOrder(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, service.ErrValidation) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, repository.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "order not found")
+			return
+		}
+		log.Printf("get order failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, order)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

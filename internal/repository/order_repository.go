@@ -2,12 +2,17 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Ayush001verma/zomato-order-service/internal/model"
 )
+
+// ErrNotFound is returned when an order does not exist.
+var ErrNotFound = errors.New("order not found")
 
 // OrderRepository handles all database access for orders.
 type OrderRepository struct {
@@ -59,4 +64,47 @@ func (r *OrderRepository) Create(ctx context.Context, o *model.Order) error {
 		return fmt.Errorf("commit transaction: %w", err)
 	}
 	return nil
+}
+
+// GetByID loads one order together with its items.
+func (r *OrderRepository) GetByID(ctx context.Context, id string) (*model.Order, error) {
+	var o model.Order
+	var status string
+
+	err := r.pool.QueryRow(ctx,
+		`SELECT id::text, customer_id, restaurant_id, status, total_amount_paise, created_at, updated_at
+		 FROM orders WHERE id = $1::uuid`,
+		id,
+	).Scan(&o.ID, &o.CustomerID, &o.RestaurantID, &status, &o.TotalAmountPaise, &o.CreatedAt, &o.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("select order: %w", err)
+	}
+	o.Status = model.OrderStatus(status)
+
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, item_id, name, quantity, unit_price_paise
+		 FROM order_items WHERE order_id = $1::uuid ORDER BY id`,
+		id,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("select order items: %w", err)
+	}
+	defer rows.Close()
+
+	o.Items = []model.OrderItem{}
+	for rows.Next() {
+		var it model.OrderItem
+		if err := rows.Scan(&it.ID, &it.ItemID, &it.Name, &it.Quantity, &it.UnitPricePaise); err != nil {
+			return nil, fmt.Errorf("scan order item: %w", err)
+		}
+		o.Items = append(o.Items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate order items: %w", err)
+	}
+
+	return &o, nil
 }
