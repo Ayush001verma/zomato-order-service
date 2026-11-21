@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/Ayush001verma/zomato-order-service/internal/model"
 	"github.com/Ayush001verma/zomato-order-service/internal/repository"
 )
@@ -55,6 +57,21 @@ func (s *OrderService) CreateOrder(ctx context.Context, req model.CreateOrderReq
 
 	if err := s.repo.Create(ctx, order); err != nil {
 		return nil, fmt.Errorf("create order: %w", err)
+	}
+	return order, nil
+}
+
+// GetOrder returns one order by id, or repository.ErrNotFound.
+func (s *OrderService) GetOrder(ctx context.Context, id string) (*model.Order, error) {
+	if _, err := uuid.Parse(id); err != nil {
+		return nil, repository.ErrNotFound // a malformed id can't exist
+	}
+	order, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("get order: %w", err)
 	}
 	return order, nil
 }
