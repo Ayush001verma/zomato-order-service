@@ -108,3 +108,47 @@ func (r *OrderRepository) GetByID(ctx context.Context, id string) (*model.Order,
 
 	return &o, nil
 }
+
+// UpdateStatus changes an order's status inside one transaction.
+// It locks the order row, so two requests can't change it at the same time.
+// The decide function receives the current status and returns an error to refuse the change.
+func (r *OrderRepository) UpdateStatus(
+	ctx context.Context,
+	id string,
+	newStatus model.OrderStatus,
+	decide func(current model.OrderStatus) error,
+) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var current string
+	err = tx.QueryRow(ctx,
+		`SELECT status FROM orders WHERE id = $1::uuid FOR UPDATE`, id,
+	).Scan(&current)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("lock order: %w", err)
+	}
+
+	if err := decide(model.OrderStatus(current)); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE orders SET status = $1, updated_at = now() WHERE id = $2::uuid`,
+		string(newStatus), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update status: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
+}

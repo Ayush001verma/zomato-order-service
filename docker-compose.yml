@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: zomato
+      POSTGRES_PASSWORD: zomato123
+      POSTGRES_DB: orders_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zomato -d orders_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  order-service:
+    build: .
+    environment:
+      DATABASE_URL: postgres://zomato:zomato123@postgres:5432/orders_db?sslmode=disable
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
