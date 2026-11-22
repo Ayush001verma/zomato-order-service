@@ -1,0 +1,8 @@
+{
+  "customer_id": "cust-101",
+  "restaurant_id": "rest-501",
+  "items": [
+    { "item_id": "item-1", "name": "Paneer Tikka", "quantity": 2, "unit_price_paise": 25000 },
+    { "item_id": "item-2", "name": "Butter Naan", "quantity": 3, "unit_price_paise": 6000 }
+  ]
+}
