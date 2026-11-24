@@ -31,6 +31,7 @@ type Order struct {
 	RestaurantID     string      `json:"restaurant_id"`
 	Status           OrderStatus `json:"status"`
 	TotalAmountPaise int64       `json:"total_amount_paise"`
+	IdempotencyKey   string      `json:"-"`
 	Items            []OrderItem `json:"items"`
 	CreatedAt        time.Time   `json:"created_at"`
 	UpdatedAt        time.Time   `json:"updated_at"`
@@ -47,7 +48,8 @@ type CreateOrderItem struct {
 // CreateOrderRequest is the JSON body of POST /orders.
 // Notice: no id, no status, no total. The server decides those.
 type CreateOrderRequest struct {
-	CustomerID   string            `json:"customer_id"`
-	RestaurantID string            `json:"restaurant_id"`
-	Items        []CreateOrderItem `json:"items"`
+	CustomerID     string            `json:"customer_id"`
+	RestaurantID   string            `json:"restaurant_id"`
+	Items          []CreateOrderItem `json:"items"`
+	IdempotencyKey string            `json:"-"` // comes from the HTTP header, never from the JSON body
 }
