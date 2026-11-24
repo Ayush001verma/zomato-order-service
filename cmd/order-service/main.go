@@ -59,6 +59,15 @@ func main() {
 	defer pool.Close()
 	log.Println("connected to postgres")
 
+	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
+	rdb, err := repository.NewRedisClient(ctx, redisAddr)
+	if err != nil {
+		log.Printf("WARNING: redis unavailable, running without cache: %v", err)
+	} else {
+		log.Println("connected to redis")
+	}
+	defer rdb.Close()
+
 	mux := http.NewServeMux()
 
 	// Wire the layers together: pool -> repository -> service -> handler.

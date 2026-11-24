@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/Ayush001verma/zomato-order-service/internal/model"
 	"github.com/Ayush001verma/zomato-order-service/internal/repository"
@@ -25,6 +26,7 @@ func NewOrderHandler(svc *service.OrderService) *OrderHandler {
 func (h *OrderHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /orders", h.CreateOrder)
 	mux.HandleFunc("GET /orders/{id}", h.GetOrder)
+	mux.HandleFunc("PATCH /orders/{id}/status", h.UpdateOrderStatus)
 }
 
 // CreateOrder handles POST /orders.
@@ -41,6 +43,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.IdempotencyKey = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	order, err := h.svc.CreateOrder(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, service.ErrValidation) {
@@ -83,4 +86,41 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// updateStatusRequest is the JSON body of PATCH /orders/{id}/status.
+type updateStatusRequest struct {
+	Status model.OrderStatus `json:"status"`
+}
+
+// UpdateOrderStatus handles PATCH /orders/{id}/status.
+func (h *OrderHandler) UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	var req updateStatusRequest
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	order, err := h.svc.UpdateOrderStatus(r.Context(), r.PathValue("id"), req.Status)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrValidation):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, repository.ErrNotFound):
+			writeError(w, http.StatusNotFound, "order not found")
+		case errors.Is(err, model.ErrInvalidTransition):
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			log.Printf("update order status failed: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal server error")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, order)
 }

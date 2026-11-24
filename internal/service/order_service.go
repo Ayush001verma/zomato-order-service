@@ -38,9 +38,10 @@ func (s *OrderService) CreateOrder(ctx context.Context, req model.CreateOrderReq
 	}
 
 	order := &model.Order{
-		CustomerID:   strings.TrimSpace(req.CustomerID),
-		RestaurantID: strings.TrimSpace(req.RestaurantID),
-		Status:       model.StatusPlaced, // server decides, never the client
+		CustomerID:     strings.TrimSpace(req.CustomerID),
+		RestaurantID:   strings.TrimSpace(req.RestaurantID),
+		Status:         model.StatusPlaced, // server decides, never the client
+		IdempotencyKey: strings.TrimSpace(req.IdempotencyKey),
 	}
 
 	var total int64
@@ -104,4 +105,29 @@ func validateCreateRequest(req model.CreateOrderRequest) error {
 		}
 	}
 	return nil
+}
+
+// UpdateOrderStatus moves an order to a new status if the state machine allows it.
+func (s *OrderService) UpdateOrderStatus(ctx context.Context, id string, newStatus model.OrderStatus) (*model.Order, error) {
+	if _, err := uuid.Parse(id); err != nil {
+		return nil, repository.ErrNotFound // a malformed id can't exist
+	}
+	if !newStatus.IsValid() {
+		return nil, fmt.Errorf("%w: unknown status %q", ErrValidation, newStatus)
+	}
+
+	err := s.repo.UpdateStatus(ctx, id, newStatus, func(current model.OrderStatus) error {
+		if !model.CanTransition(current, newStatus) {
+			return fmt.Errorf("%w: cannot move from %s to %s", model.ErrInvalidTransition, current, newStatus)
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) || errors.Is(err, model.ErrInvalidTransition) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("update order status: %w", err)
+	}
+
+	return s.GetOrder(ctx, id) // return the order as it is now
 }

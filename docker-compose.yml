@@ -16,15 +16,29 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   order-service:
     build: .
     environment:
       DATABASE_URL: postgres://zomato:zomato123@postgres:5432/orders_db?sslmode=disable
+      REDIS_ADDR: redis:6379
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
+        required: false
 
 volumes:
   pgdata:

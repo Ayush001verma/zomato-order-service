@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Ayush001verma/zomato-order-service/internal/model"
@@ -36,13 +37,29 @@ func (r *OrderRepository) Create(ctx context.Context, o *model.Order) error {
 	defer tx.Rollback(ctx)
 
 	// Insert the order row. The DB generates id, created_at, and updated_at.
+	var key any // nil becomes SQL NULL when the client sent no key
+	if o.IdempotencyKey != "" {
+		key = o.IdempotencyKey
+	}
+
 	err = tx.QueryRow(ctx,
-		`INSERT INTO orders (customer_id, restaurant_id, status, total_amount_paise)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO orders (customer_id, restaurant_id, status, total_amount_paise, idempotency_key)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING id::text, created_at, updated_at`,
-		o.CustomerID, o.RestaurantID, string(o.Status), o.TotalAmountPaise,
+		o.CustomerID, o.RestaurantID, string(o.Status), o.TotalAmountPaise, key,
 	).Scan(&o.ID, &o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && o.IdempotencyKey != "" {
+			// Unique violation: this key was already used. Return that order.
+			_ = tx.Rollback(ctx)
+			existing, getErr := r.GetByIdempotencyKey(ctx, o.IdempotencyKey)
+			if getErr != nil {
+				return fmt.Errorf("load existing order: %w", getErr)
+			}
+			*o = *existing
+			return nil
+		}
 		return fmt.Errorf("insert order: %w", err)
 	}
 
@@ -151,4 +168,19 @@ func (r *OrderRepository) UpdateStatus(
 		return fmt.Errorf("commit transaction: %w", err)
 	}
 	return nil
+}
+
+// GetByIdempotencyKey loads the order that was created with the given key.
+func (r *OrderRepository) GetByIdempotencyKey(ctx context.Context, key string) (*model.Order, error) {
+	var id string
+	err := r.pool.QueryRow(ctx,
+		`SELECT id::text FROM orders WHERE idempotency_key = $1`, key,
+	).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("select by idempotency key: %w", err)
+	}
+	return r.GetByID(ctx, id)
 }
